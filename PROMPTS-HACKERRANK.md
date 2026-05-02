@@ -1355,3 +1355,154 @@ git status --short && git diff --stat
 ```
 
 Si algún archivo aparece que NO debería (ej: `cmd/api/cli.go`, `internal/utils/`), el agente improvisó — frenálo con la frase de freno correspondiente.
+
+---
+
+## Prompt 11 — Bloque 1 de robustez técnica (safety net operativo/config)
+
+```
+TAREA: agregar tests de robustez técnica SIN cambiar la semántica pública del API.
+
+ALCANCE EXACTO:
+
+1) internal/infrastructure/http/middleware_test.go
+   - TestRequestIDMiddleware_PreservesIncomingHeader
+     Verifica que si entra X-Request-Id, la respuesta devuelve exactamente ese valor.
+   - TestRequestIDMiddleware_GeneratesHeaderWhenMissing
+     Verifica que si no entra X-Request-Id, la respuesta lo incluye no vacío.
+   - TestSecurityHeadersMiddleware_AddsExpectedHeaders
+     Verifica headers: X-Content-Type-Options=nosniff y Referrer-Policy=no-referrer.
+
+2) internal/infrastructure/http/error_handler_test.go
+   - Tabla de mapeo de errores conocidos:
+     ErrProductNotFound -> 404
+     MissingIDsError -> 404
+     ErrEmptyIDs -> 400
+     ErrInvalidField -> 400
+     ErrInvalidPagination -> 400
+     ErrTooManyIDs -> 400
+   - Caso unknown error -> 500.
+
+3) cmd/api/main_test.go
+   - TestPortFromEnv:
+     - usa PORT cuando está seteado
+     - default 8080 cuando falta
+   - TestValidateProductsPath (table-driven):
+     - válidos: testdata/products.json, testdata/PRODUCTS.JSON
+     - inválidos: path vacío, extensión no .json, path traversal ../secrets.json
+
+4) Router precedence (ruta estática vs dinámica)
+   - Agregar test puntual en internal/infrastructure/http/product_handler_test.go
+     para asegurar que GET /products/categories matchea Categories y NO /products/:id.
+
+REGLAS:
+- No tocar código productivo salvo que sea estrictamente necesario para testear.
+- No cambiar contratos HTTP ni payloads públicos.
+- Mantener estilo table-driven y nombres de tests descriptivos.
+
+VALIDACIÓN (solo tests, no build):
+  go test ./cmd/api ./internal/infrastructure/http -v
+  go test ./... -v
+
+ESPERADO:
+- Suite verde
+- Se agregan 8 tests netos (el total depende del estado actual del repo)
+
+REPORTÁ:
+- Archivos creados/modificados
+- Si hubo que tocar comportamiento (y por qué)
+```
+
+---
+
+## Prompt 12 — Bloque 2 de observabilidad (trazabilidad de errores 500)
+
+```
+
+---
+
+## Prompt 13 — Bloque 3 de hardening de inputs/config
+
+```
+TAREA: endurecer bordes de entrada HTTP + configuración con cambios mínimos y sin romper contrato público.
+
+OBJETIVO:
+- Blindar parsing de query params frente a entradas sucias/extremas
+- Revisar PRODUCTS_FILE y cambiar comportamiento SOLO si hay bug real
+
+ALCANCE EXACTO:
+
+1) Consolidar contrato actual en tests HTTP (internal/infrastructure/http/product_handler_test.go):
+   - CSV vacío con solo tokens vacíos: /products/compare?ids=,%20,%20,, -> 400
+   - Espacios raros en CSV: /products/compare?ids=%201%20,%20%202%20,,&fields=%20name%20,%20price%20 -> 200, len(items)=2, fields=["name","price"]
+   - Params repetidos: /products/compare?ids=1&ids=2&fields=name -> mantener semántica actual (Query("ids") toma primer valor), len(items)=1
+   - Valores extremos/no parseables en paginación:
+     * /products?page=999999999999999999999999 -> 400
+     * /products?size=1e3 -> 400
+
+2) PRODUCTS_FILE (cmd/api/main.go + cmd/api/main_test.go):
+   - Detectar si hay bug real. Bug justificado: env con espacios alrededor (común en CI/.env) hoy puede fallar por falso negativo.
+   - Fix mínimo: aplicar strings.TrimSpace al leer PRODUCTS_FILE y al inicio de validateProductsPath.
+   - Mantener reglas existentes: vacío inválido, extensión .json requerida, traversal inválido.
+   - Agregar tests de contrato:
+     * válido con espacios alrededor: "  testdata/products.json  " -> válido
+     * nested traversal: testdata/../../secrets.json -> inválido
+
+REGLAS:
+- No cambiar payloads/status públicos fuera de casos bugfix justificados.
+- No agregar dependencias nuevas.
+- Mantener cambios chicos, auditables y orientados a bordes.
+
+VALIDACIÓN (sin build):
+  go test ./internal/infrastructure/http ./cmd/api -v
+  go test ./... -v
+
+REPORTÁ:
+- archivos modificados
+- bug real detectado (si aplica) y por qué el fix no rompe semántica pública
+- riesgos/trade-offs
+```
+TAREA: mejorar observabilidad interna de errores 500 SIN cambiar semántica pública del API.
+
+ALCANCE EXACTO:
+
+1) Revisar el manejo actual de unknown/internal errors en la capa HTTP
+   - Punto de entrada: internal/infrastructure/http/error_handler.go (writeError)
+   - Logging actual: internal/infrastructure/http/middleware.go (LoggingMiddleware)
+
+2) Cambio mínimo requerido
+   Cuando writeError responda el default 500 genérico:
+   - registrar la causa real del error para uso interno (logs/troubleshooting)
+   - si existe request_id en contexto, que quede en el log esperado junto con esa causa
+   - mantener payload público 500 genérico: {"error":"internal server error"}
+   - NO exponer err.Error() al cliente
+
+3) Tests (agregar/ajustar)
+   En internal/infrastructure/http/error_handler_test.go:
+   - fortalecer TestWriteError_UnknownErrorReturns500 para validar que el error
+     unknown queda registrado internamente en el contexto de Gin (no solo status)
+   - agregar test de integración liviano con RequestIDMiddleware + LoggingMiddleware:
+     * request con X-Request-Id explícito
+     * handler fuerza unknown error (ej: errors.New("db connection timeout"))
+     * assert: HTTP 500 + payload genérico
+     * assert: el log estructurado incluye request_id e internal_error con la causa real
+
+REGLAS:
+- No cambiar contratos públicos HTTP ni formato de error público.
+- No introducir librerías nuevas.
+- Mantener enfoque mínimo (sin over-engineering).
+
+VALIDACIÓN (solo tests):
+  go test ./internal/infrastructure/http -v
+  go test ./... -v
+
+ESPERADO:
+- Suite verde
+- 500 sigue siendo genérico para cliente
+- Causa real trazable en logs internos con request_id cuando aplica
+
+REPORTÁ:
+- Archivos modificados
+- Qué se agregó para observabilidad interna
+- Riesgos o trade-offs
+```

@@ -163,6 +163,7 @@ internal/infrastructure/persistence/json_repository.go (package persistence, imp
 - struct JSONRepository{ mu sync.RWMutex; products []domain.Product; byID map[string]domain.Product }.
 - NewJSONRepository(path string) (*JSONRepository, error):
     os.ReadFile + wrap %w; json.Unmarshal + wrap %w.
+    iterar: si p.ID == "" → return error "empty id at index N".
     iterar: si byID[p.ID] ya existe → return error "duplicate product id".
 - TODOS los métodos: r.mu.RLock() defer Unlock().
 - FindByID: byID lookup → ErrProductNotFound si falta.
@@ -171,14 +172,14 @@ internal/infrastructure/persistence/json_repository.go (package persistence, imp
 - Categories: set + sort.Strings.
 - COMENTARIO crítico en doc del struct: "Specs es read-only para el consumidor — el map se comparte por referencia. No mutar."
 
-internal/infrastructure/persistence/json_repository_test.go (11 tests):
+internal/infrastructure/persistence/json_repository_test.go (12 tests):
 const sampleJSON = `[{"id":"1","name":"A","category":"x","price":10},{"id":"2","name":"B","category":"y","price":20},{"id":"3","name":"C","category":"x","price":30}]`
 helper writeTempJSON(t, content) string → t.TempDir() + write file.
 helper setupRepo(t) *JSONRepository.
 
-Tests: LoadsValidFile, FailsOnMissingFile, FailsOnInvalidJSON, FailsOnDuplicateIDs, FindByID_Found, FindByID_NotFound, FindByIDs_AllFound_PreservesOrder ([3,1] → [3,1]), FindByIDs_PartialMissingReturnsError (2 missing), List_Pagination, List_OffsetBeyondTotalReturnsEmpty (offset=100 → [], total=3), Categories_DistinctAndSorted.
+Tests: LoadsValidFile, FailsOnMissingFile, FailsOnInvalidJSON, FailsOnDuplicateIDs, FailsOnEmptyID, FindByID_Found, FindByID_NotFound, FindByIDs_AllFound_PreservesOrder ([3,1] → [3,1]), FindByIDs_PartialMissingReturnsError (2 missing), List_Pagination, List_OffsetBeyondTotalReturnsEmpty (offset=100 → [], total=3), Categories_DistinctAndSorted.
 
-VALIDAR: go test ./internal/infrastructure/persistence/... -v → 11 tests verde
+VALIDAR: go test ./internal/infrastructure/persistence/... -v → 12 tests verde
 ```
 
 ---
@@ -265,8 +266,13 @@ const fixtureJSON = `[
 helper setupRouter(t) *gin.Engine:
   gin.SetMode(gin.TestMode)
   escribir fixture en t.TempDir()/products.json
-  repo := persistence.NewJSONRepository(path)
-  h := NewProductHandler(application.NewCompareProductsUseCase(repo), NewListProductsUseCase, NewGetProductUseCase, NewListCategoriesUseCase)
+  repo, err := persistence.NewJSONRepository(path); if err != nil → t.Fatalf("repo: %v", err)
+  h := NewProductHandler(
+    application.NewCompareProductsUseCase(repo),
+    application.NewListProductsUseCase(repo),
+    application.NewGetProductUseCase(repo),
+    application.NewListCategoriesUseCase(repo),
+  )
   silentLogger := slog.New(slog.NewJSONHandler(io.Discard, nil))   // logger silencioso en tests
   return NewRouter(h, silentLogger)
 
@@ -464,7 +470,7 @@ README.md (en español, secciones en este orden):
 
 ## Checklist final
 
-- go test ./... → 47 verde
+- go test ./... → verde (con +8 tests respecto al estado previo)
 - go vet ./... → clean
 - go build ./cmd/api → ok
 - govulncheck → no vulns
@@ -472,3 +478,94 @@ README.md (en español, secciones en este orden):
 - SIGTERM → "stopped cleanly" exit 0
 - Headers en TODA respuesta: nosniff, no-referrer, X-Request-Id
 - README + problem.md + Makefile + .gitignore presentes
+
+---
+
+## P11 — Robustez técnica (tests operativos/config)
+
+```bash
+# Objetivo: safety net sin cambiar semántica pública
+
+# 1) middleware tests
+# - preserva X-Request-Id entrante
+# - genera X-Request-Id si falta
+# - agrega X-Content-Type-Options=nosniff y Referrer-Policy=no-referrer
+
+# 2) error handler tests
+# table mapping:
+# ErrProductNotFound->404
+# MissingIDsError->404
+# ErrEmptyIDs/ErrInvalidField/ErrInvalidPagination/ErrTooManyIDs->400
+# unknown error -> 500
+
+# 3) main helpers tests (cmd/api/main_test.go)
+# portFromEnv: usa PORT o default 8080
+# validateProductsPath: válido json/case-insensitive, inválido empty/ext/traversal
+
+# 4) router precedence
+# test puntual: /products/categories debe resolver Categories y NO /products/:id
+
+# Validar (sin build):
+go test ./cmd/api ./internal/infrastructure/http -v
+go test ./... -v
+
+# Esperado: todo verde, +8 tests netos
+```
+
+---
+
+## P12 — Hardening inputs/config (manual y corto)
+
+```
+Objetivo: endurecer bordes sin romper contrato público.
+
+Cambios:
+1) product_handler_test.go
+   - /products/compare?ids=,%20,%20,, -> 400 (CSV vacío)
+   - /products/compare?ids=%201%20,%20%202%20,,&fields=%20name%20,%20price%20 -> 200, items=2, fields=[name,price]
+   - /products/compare?ids=1&ids=2&fields=name -> 200, items=1 (se conserva semántica actual: primer query value)
+   - /products?page=999999999999999999999999 -> 400
+   - /products?size=1e3 -> 400
+
+2) main.go / main_test.go
+   - Bug real: PRODUCTS_FILE con espacios alrededor puede fallar por falso negativo.
+   - Fix mínimo: strings.TrimSpace al leer PRODUCTS_FILE y dentro de validateProductsPath.
+   - Tests: "  testdata/products.json  " válido; "testdata/../../secrets.json" inválido.
+
+Validar (sin build):
+go test ./internal/infrastructure/http ./cmd/api -v
+go test ./... -v
+```
+
+---
+
+## P13 — Observabilidad 500 (manual, corto y accionable)
+
+```bash
+# Objetivo: trazabilidad interna de 500 sin cambiar contrato público
+
+# 1) Revisar writeError + LoggingMiddleware
+# files:
+# - internal/infrastructure/http/error_handler.go
+# - internal/infrastructure/http/middleware.go
+
+# 2) Cambio mínimo
+# - En default 500: registrar causa real en contexto interno (no en payload)
+# - Mantener response público: {"error":"internal server error"}
+# - Log estructurado debe incluir request_id (si existe) + internal_error
+
+# 3) Tests
+# - Ajustar TestWriteError_UnknownErrorReturns500:
+#   además de 500, verificar que unknown error queda registrado en gin.Context
+# - Agregar test integración liviano:
+#   RequestIDMiddleware + LoggingMiddleware + handler que dispara errors.New("db connection timeout")
+#   asserts: payload genérico, log contiene request_id + internal_error
+
+# Validar (sin build):
+go test ./internal/infrastructure/http -v
+go test ./... -v
+
+# Esperado:
+# - cliente ve 500 genérico
+# - causa real trazable en logs internos
+```

@@ -136,6 +136,19 @@ func TestCategories(t *testing.T) {
 	}
 }
 
+func TestRouter_StaticCategoriesRouteTakesPrecedenceOverDynamicID(t *testing.T) {
+	router := setupRouter(t)
+
+	w, body := doRequest(t, router, "GET", "/products/categories")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /products/categories, got %d body=%s", w.Code, w.Body.String())
+	}
+	if _, ok := body["categories"]; !ok {
+		t.Fatalf("expected categories payload, got %v", body)
+	}
+}
+
 func TestCompare_HappyPath(t *testing.T) {
 	router := setupRouter(t)
 
@@ -266,4 +279,64 @@ func TestCompare_FullProjectionWhenFieldsOmitted(t *testing.T) {
 			t.Errorf("expected %q in full projection, got %v", expected, first)
 		}
 	}
+}
+
+func TestCompare_EmptyCSVTokensOnlyReturns400(t *testing.T) {
+	router := setupRouter(t)
+
+	w, _ := doRequest(t, router, "GET", "/products/compare?ids=,%20,%20,%20,,")
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestCompare_WeirdSpacesInCSVAreTrimmed(t *testing.T) {
+	router := setupRouter(t)
+
+	w, body := doRequest(t, router, "GET", "/products/compare?ids=%201%20,%20%202%20,,&fields=%20name%20,%20price%20")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	fields, _ := body["fields"].([]any)
+	if len(fields) != 2 || fields[0] != "name" || fields[1] != "price" {
+		t.Fatalf("expected fields [name price], got %v", fields)
+	}
+}
+
+func TestCompare_RepeatedIDsParamUsesFirstValueOnly(t *testing.T) {
+	router := setupRouter(t)
+
+	w, body := doRequest(t, router, "GET", "/products/compare?ids=1&ids=2&fields=name")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item (first ids param wins), got %d", len(items))
+	}
+}
+
+func TestList_ExtremeAndUnparseablePaginationReturn400(t *testing.T) {
+	router := setupRouter(t)
+
+	t.Run("page overflow", func(t *testing.T) {
+		w, _ := doRequest(t, router, "GET", "/products?page=999999999999999999999999")
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("size scientific notation", func(t *testing.T) {
+		w, _ := doRequest(t, router, "GET", "/products?size=1e3")
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", w.Code)
+		}
+	})
 }

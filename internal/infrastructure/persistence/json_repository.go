@@ -60,7 +60,12 @@ func NewJSONRepository(path string) (*JSONRepository, error) {
 	}
 
 	byID := make(map[string]domain.Product, len(products))
-	for _, p := range products {
+	for i, p := range products {
+		// ID vacío rompe lookups silenciosamente: el primero pasa el dedup, los
+		// siguientes lo sobrescriben sin warning. Mejor fail-fast en boot.
+		if p.ID == "" {
+			return nil, fmt.Errorf("product at index %d has empty id", i)
+		}
 		if _, dup := byID[p.ID]; dup {
 			return nil, fmt.Errorf("duplicate product id in dataset: %q", p.ID)
 		}

@@ -41,15 +41,21 @@ func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 
-		// Loguear DESPUÉS de procesar — necesitamos status y duración.
-		logger.Info("http_request",
+		attrs := []any{
 			slog.String("request_id", c.GetString("request_id")),
 			slog.String("method", c.Request.Method),
 			slog.String("path", c.Request.URL.Path),
 			slog.Int("status", c.Writer.Status()),
 			slog.Duration("duration", time.Since(start)),
 			slog.String("client_ip", c.ClientIP()),
-		)
+		}
+
+		if internalErr := c.Errors.ByType(gin.ErrorTypePrivate).Last(); internalErr != nil {
+			attrs = append(attrs, slog.String("internal_error", internalErr.Err.Error()))
+		}
+
+		// Loguear DESPUÉS de procesar — necesitamos status y duración.
+		logger.Info("http_request", attrs...)
 	}
 }
 

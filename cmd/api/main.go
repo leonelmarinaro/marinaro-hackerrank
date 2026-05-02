@@ -57,7 +57,7 @@ func main() {
 	}
 
 	// Path del catálogo: configurable por env (12-factor).
-	dataPath := os.Getenv("PRODUCTS_FILE")
+	dataPath := strings.TrimSpace(os.Getenv("PRODUCTS_FILE"))
 	if dataPath == "" {
 		dataPath = "testdata/products.json"
 	}
@@ -142,6 +142,7 @@ func portFromEnv() string {
 // equivalente a RCE). Es defense-in-depth contra typos y configs erradas:
 // rechaza extensiones que no sean .json y segmentos de path traversal.
 func validateProductsPath(path string) error {
+	path = strings.TrimSpace(path)
 	if path == "" {
 		return errors.New("path is empty")
 	}

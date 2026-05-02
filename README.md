@@ -4,6 +4,8 @@ API REST en **Go + Gin** para servir detalles de productos y comparar items con 
 
 > Implementado con **Clean Architecture liviana** y **TDD estricto**.
 
+📌 Para preparar defensa técnica de entrevista: ver [`INTERVIEW-NARRATIVE.md`](./INTERVIEW-NARRATIVE.md).
+
 ## Stack
 
 | Componente | Elección | Por qué |

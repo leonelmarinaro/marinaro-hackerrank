@@ -74,6 +74,19 @@ func TestNewJSONRepository_FailsOnDuplicateIDs(t *testing.T) {
 	}
 }
 
+func TestNewJSONRepository_FailsOnEmptyID(t *testing.T) {
+	// Un id vacío rompe lookups silenciosamente — el segundo registro con
+	// id="" sobreescribiría al primero en el índice byID. Mejor fail-fast.
+	empty := `[{"id":"","name":"A","category":"x"}]`
+	path := writeTempJSON(t, empty)
+
+	_, err := NewJSONRepository(path)
+
+	if err == nil {
+		t.Error("expected error for empty id")
+	}
+}
+
 func TestFindByID_Found(t *testing.T) {
 	repo := setupRepo(t)
 

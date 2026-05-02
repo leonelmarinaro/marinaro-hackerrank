@@ -36,6 +36,9 @@ func writeError(c *gin.Context, err error) {
 		errors.Is(err, domain.ErrTooManyIDs):
 		c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
 	default:
+		// Registramos la causa para observabilidad interna: el payload al cliente
+		// sigue genérico, pero queda disponible para el logger en el contexto.
+		_ = c.Error(err).SetType(gin.ErrorTypePrivate)
 		// Default: 500. NO exponemos el error interno al cliente —
 		// log lo loguea (en main), respuesta es genérica para no filtrar
 		// detalles de implementación. Trade-off: el cliente pierde detalle,
