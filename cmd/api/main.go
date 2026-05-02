@@ -1,75 +1,134 @@
 // Package main es el composition root del API.
 //
 // Responsabilidad única: instanciar y conectar los componentes de las capas
-// internas. NO contiene lógica de negocio. Si tuvieras que cambiar todo
-// (framework HTTP, persistencia, etc.) este es uno de los pocos archivos que
-// se tocan junto con los adapters concretos.
+// internas + orquestar el ciclo de vida del proceso (start, signals, shutdown).
+// NO contiene lógica de negocio.
 //
-// Patrón: Manual Dependency Injection. Sin framework de DI (Wire, Fx).
-// Razón: para 4 use cases + 1 repo + 1 router, hacerlo a mano es 10 líneas
-// y se lee mejor que cualquier mágica de generación de código.
+// Patrón de DI: Manual Dependency Injection. Sin frameworks (Wire, Fx). Para
+// 4 use cases + 1 repo + 1 router, hacerlo a mano son ~10 líneas y se lee
+// mejor que cualquier generación de código mágica.
 package main
 
 import (
-	"log"
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/lmarinaro/marinaro-hackerrank/internal/application"
 	httpadapter "github.com/lmarinaro/marinaro-hackerrank/internal/infrastructure/http"
 	"github.com/lmarinaro/marinaro-hackerrank/internal/infrastructure/persistence"
 )
 
+// Timeouts del HTTP server.
+//
+// Por qué fijarlos explícitamente: net/http.Server con valores cero permite
+// que un cliente lento mantenga conexiones abiertas indefinidamente
+// (slowloris attack). Estos valores son conservadores pero seguros para una
+// API REST que devuelve JSON pequeño.
+const (
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 10 * time.Second
+	writeTimeout      = 15 * time.Second
+	idleTimeout       = 60 * time.Second
+	shutdownTimeout   = 10 * time.Second
+)
+
 func main() {
-	// Path del catálogo: configurable por env para portabilidad (HackerRank,
-	// containers, tests). Default razonable apunta al fixture del repo.
+	// Logger estructurado JSON. Usado por main + middleware de HTTP.
+	// slog está en stdlib desde Go 1.21 — sin dependencias.
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	// Modo de Gin configurable por env. Default release: el debug mode emite
+	// warnings en logs y expone routing por stdout — no apto para producción.
+	if mode := os.Getenv("GIN_MODE"); mode != "" {
+		gin.SetMode(mode)
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	// Path del catálogo: configurable por env (12-factor).
 	dataPath := os.Getenv("PRODUCTS_FILE")
 	if dataPath == "" {
 		dataPath = "testdata/products.json"
 	}
 
-	// Validación defensiva del path. Aunque el catálogo se carga al boot
-	// (no por request, no hay riesgo directo de path traversal vía API),
-	// rechazamos paths sospechosos para evitar que una mala configuración
-	// (env var inyectada, typo) lea archivos no deseados. Reglas:
-	//   - extensión .json obligatoria — leer cualquier otro archivo es accidente.
-	//   - sin componentes ".." después de Clean — bloquea escape básico.
+	// Validación defensiva del path. Filtra typos/configs malas que apunten a
+	// archivos no deseados. No es boundary security — es defense-in-depth.
 	if err := validateProductsPath(dataPath); err != nil {
-		log.Fatalf("startup: invalid PRODUCTS_FILE %q: %v", dataPath, err)
+		logger.Error("invalid PRODUCTS_FILE", slog.String("path", dataPath), slog.Any("error", err))
+		os.Exit(1)
 	}
 
-	// Carga del catálogo. Si falla, abortamos: un servicio sin datos no
-	// debería arrancar pretendiendo estar sano (fail-fast).
+	// Carga del catálogo. Fail-fast: un servicio sin datos no debería arrancar.
 	repo, err := persistence.NewJSONRepository(dataPath)
 	if err != nil {
-		log.Fatalf("startup: failed loading products from %q: %v", dataPath, err)
+		logger.Error("loading products failed", slog.String("path", dataPath), slog.Any("error", err))
+		os.Exit(1)
 	}
-	log.Printf("startup: loaded products from %q", dataPath)
+	logger.Info("products loaded", slog.String("path", dataPath))
 
-	// Use cases — todos toman el mismo repo. La inyección por constructor
-	// hace explícita la dependencia.
+	// Use cases — todos toman el mismo repo.
 	compareUC := application.NewCompareProductsUseCase(repo)
 	listUC := application.NewListProductsUseCase(repo)
 	getUC := application.NewGetProductUseCase(repo)
 	categoriesUC := application.NewListCategoriesUseCase(repo)
 
-	// Handler agrupa los use cases que comparten un mismo recurso (productos).
-	// Si más adelante hay otros recursos (orders, users), tendrían sus propios
-	// handlers — manteniendo bajo acoplamiento.
 	handler := httpadapter.NewProductHandler(compareUC, listUC, getUC, categoriesUC)
-	router := httpadapter.NewRouter(handler)
+	router := httpadapter.NewRouter(handler, logger)
 
-	// Puerto configurable por env (convención 12-factor). Default :8080.
-	addr := ":" + portFromEnv()
-	log.Printf("startup: listening on %s", addr)
-	if err := router.Run(addr); err != nil {
-		log.Fatalf("server: %v", err)
+	srv := &http.Server{
+		Addr:              ":" + portFromEnv(),
+		Handler:           router,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
+
+	// Server en goroutine para no bloquear la espera de señales.
+	// El error http.ErrServerClosed es esperado al hacer Shutdown — no es fallo.
+	serverErr := make(chan error, 1)
+	go func() {
+		logger.Info("server listening", slog.String("addr", srv.Addr))
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+	}()
+
+	// Graceful shutdown: esperamos SIGINT (Ctrl+C dev) o SIGTERM (kubectl, systemd).
+	// Le damos hasta shutdownTimeout para drenar requests en vuelo.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErr:
+		logger.Error("server failed", slog.Any("error", err))
+		os.Exit(1)
+	case sig := <-stop:
+		logger.Info("shutdown signal received", slog.String("signal", sig.String()))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error("graceful shutdown failed, forcing close", slog.Any("error", err))
+		_ = srv.Close()
+		os.Exit(1)
+	}
+	logger.Info("server stopped cleanly")
 }
 
 // portFromEnv devuelve el puerto desde la env var PORT o 8080 por default.
-// Helper local para mantener main() legible.
 func portFromEnv() string {
 	if p := os.Getenv("PORT"); p != "" {
 		return p
@@ -79,34 +138,18 @@ func portFromEnv() string {
 
 // validateProductsPath sanitiza el path del catálogo.
 //
-// No es defensa contra atacante avanzado — el binario corre con permisos del
-// usuario que lo ejecuta — pero filtra el 99% de errores accidentales (typos,
-// configs malas, paths que apuntan a /etc/*).
+// No es defensa contra atacante con control de env vars (ya tendría algo
+// equivalente a RCE). Es defense-in-depth contra typos y configs erradas:
+// rechaza extensiones que no sean .json y segmentos de path traversal.
 func validateProductsPath(path string) error {
 	if path == "" {
-		return errEmptyPath
+		return errors.New("path is empty")
 	}
 	if !strings.HasSuffix(strings.ToLower(path), ".json") {
-		return errBadExtension
+		return errors.New("path must end in .json")
 	}
-	// filepath.Clean colapsa ".." — si después de limpiar el path empieza con
-	// ".." es porque escapaba del directorio de trabajo.
-	clean := filepath.Clean(path)
-	if strings.HasPrefix(clean, "..") {
-		return errPathTraversal
+	if strings.HasPrefix(filepath.Clean(path), "..") {
+		return errors.New("path contains traversal segments")
 	}
 	return nil
 }
-
-var (
-	errEmptyPath     = stringError("path is empty")
-	errBadExtension  = stringError("path must end in .json")
-	errPathTraversal = stringError("path contains traversal segments")
-)
-
-// stringError es un error inmutable basado en string. Usamos esto en lugar
-// de errors.New para mantener los mensajes como const-like (permite reusar
-// vía == en tests sin asignaciones globales).
-type stringError string
-
-func (e stringError) Error() string { return string(e) }

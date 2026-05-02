@@ -90,6 +90,44 @@ func TestCompareProducts_RepoErrorPropagated(t *testing.T) {
 	}
 }
 
+func TestCompareProducts_DeduplicatesIDs(t *testing.T) {
+	// El dedup es responsabilidad del use case (no del adapter HTTP) — cualquier
+	// caller (gRPC, CLI futuro) recibe la misma semántica.
+	var receivedIDs []string
+	repo := &mockRepository{
+		findByIDsFn: func(ids []string) ([]domain.Product, error) {
+			receivedIDs = ids
+			return sampleProducts()[:2], nil
+		},
+	}
+	uc := NewCompareProductsUseCase(repo)
+
+	_, err := uc.Execute([]string{"1", "1", "2", "1"}, nil)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(receivedIDs) != 2 || receivedIDs[0] != "1" || receivedIDs[1] != "2" {
+		t.Errorf("expected dedup to [1,2] preserving order, got %v", receivedIDs)
+	}
+}
+
+func TestCompareProducts_RejectsTooManyIDs(t *testing.T) {
+	uc := NewCompareProductsUseCase(&mockRepository{})
+
+	// Generamos MaxCompareIDs+1 IDs únicos (sino el dedup los reduciría).
+	tooMany := make([]string, domain.MaxCompareIDs+1)
+	for i := range tooMany {
+		tooMany[i] = string(rune('a'+i%26)) + string(rune('0'+i/26))
+	}
+
+	_, err := uc.Execute(tooMany, nil)
+
+	if !errors.Is(err, domain.ErrTooManyIDs) {
+		t.Errorf("expected ErrTooManyIDs, got %v", err)
+	}
+}
+
 func TestCompareProducts_DoesNotCallRepoWhenValidationFails(t *testing.T) {
 	// Garantiza fail-fast: si la validación de fields falla, NO llamamos al repo.
 	called := false

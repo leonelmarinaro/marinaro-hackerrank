@@ -89,14 +89,17 @@ problem.md
 
 **Checkpoint**: `go test ./internal/infrastructure/http/...` → 14 tests OK.
 
+> Nota: el HTTP layer ahora incluye `middleware.go` con `RequestIDMiddleware`, `LoggingMiddleware(slog)` y `SecurityHeadersMiddleware`. `NewRouter` recibe un `*slog.Logger`. En tests usar `slog.New(slog.NewJSONHandler(io.Discard, nil))` para silencio.
+
 ### Bloque 5 — Composition root
 22. `cmd/api/main.go`
 
 **Checkpoint final**:
 ```bash
-go test ./... -cover    # → 45 tests OK
+go test ./... -cover    # → 47 tests OK
 go vet ./...            # sin warnings
 go build ./cmd/api      # compila
+make vulncheck          # govulncheck sin CVEs activos
 ```
 
 ### Bloque 6 — Documentación
@@ -132,7 +135,7 @@ Hacer este ciclo en vivo demuestra disciplina TDD sin alargar la entrevista.
 
 Antes de marcar el challenge como entregado:
 
-- [ ] `go test ./...` pasa todo verde (45 tests)
+- [ ] `go test ./...` pasa todo verde (47 tests)
 - [ ] `go vet ./...` sin warnings
 - [ ] `go build ./cmd/api` compila sin error
 - [ ] `README.md` presente con setup, endpoints, decisiones

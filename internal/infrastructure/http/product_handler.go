@@ -49,13 +49,10 @@ func (h *ProductHandler) Health(c *gin.Context) {
 // CSV en query string es la convención RESTful (vs. múltiples ?ids=1&ids=2 que
 // también es válido pero menos compacto y peor con caches HTTP).
 //
-// Decisión: deduplicar ids antes de llamar al use case. Razón: comparar X
-// con X no aporta información — y devolver el mismo producto duplicado en el
-// output confunde al cliente (parece bug). Es una semántica defensiva que
-// alinea con la idea de "comparación entre items distintos".
+// La deduplicación, el cap de cantidad y la validación de fields ocurren en
+// el use case — el handler es puro transporte, sin lógica de negocio.
 func (h *ProductHandler) Compare(c *gin.Context) {
 	ids := splitCSV(c.Query("ids"))
-	ids = dedupPreservingOrder(ids)
 	fields := splitCSV(c.Query("fields"))
 
 	res, err := h.compareUC.Execute(ids, fields)
@@ -132,25 +129,6 @@ func splitCSV(raw string) []string {
 		if p != "" {
 			out = append(out, p)
 		}
-	}
-	return out
-}
-
-// dedupPreservingOrder elimina duplicados manteniendo el orden de aparición.
-// O(n) con set auxiliar. Preservar orden importa porque la UI suele renderizar
-// la comparación en el orden recibido.
-func dedupPreservingOrder(in []string) []string {
-	if len(in) == 0 {
-		return in
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, v := range in {
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
 	}
 	return out
 }

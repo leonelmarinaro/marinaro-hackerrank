@@ -2,6 +2,8 @@ package http
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -49,7 +51,10 @@ func setupRouter(t *testing.T) *gin.Engine {
 		application.NewGetProductUseCase(repo),
 		application.NewListCategoriesUseCase(repo),
 	)
-	return NewRouter(h)
+	// Logger silencioso en tests: io.Discard descarta los JSON logs del middleware
+	// para no contaminar la salida de `go test`.
+	silentLogger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	return NewRouter(h, silentLogger)
 }
 
 func doRequest(t *testing.T, router *gin.Engine, method, url string) (*httptest.ResponseRecorder, map[string]any) {

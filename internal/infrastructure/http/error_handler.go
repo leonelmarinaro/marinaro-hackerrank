@@ -32,7 +32,8 @@ func writeError(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, errorResponse{Error: err.Error()})
 	case errors.Is(err, domain.ErrEmptyIDs),
 		errors.Is(err, domain.ErrInvalidField),
-		errors.Is(err, domain.ErrInvalidPagination):
+		errors.Is(err, domain.ErrInvalidPagination),
+		errors.Is(err, domain.ErrTooManyIDs):
 		c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
 	default:
 		// Default: 500. NO exponemos el error interno al cliente —

@@ -23,7 +23,18 @@ var (
 
 	// ErrInvalidPagination cubre offset/limit fuera de rango.
 	ErrInvalidPagination = errors.New("invalid pagination parameters")
+
+	// ErrTooManyIDs limita la cantidad de items que se pueden comparar en una sola
+	// llamada. Defensa contra DoS por amplificación: un ?ids=1,1,...(100k) gasta
+	// CPU y memoria en parseo+dedup aunque el catálogo sea chico. Comparar más de
+	// MaxCompareIDs items tampoco tiene sentido de UX.
+	ErrTooManyIDs = errors.New("too many ids requested")
 )
+
+// MaxCompareIDs es el cap de items por request en /products/compare.
+// Valor elegido: 50 — suficiente para cualquier comparación humana real,
+// freno duro contra abuso. Documentado en el README.
+const MaxCompareIDs = 50
 
 // MissingIDsError representa el caso donde algunos IDs solicitados no existen.
 //

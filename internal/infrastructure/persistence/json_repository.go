@@ -28,6 +28,15 @@ import (
 //  1. Si mañana agregamos un endpoint POST /products, ya está cubierto.
 //  2. RLock es prácticamente free en lecturas concurrentes.
 //  3. Cero coste cognitivo, ganamos seguridad por defecto.
+//
+// IMPORTANTE — Mutabilidad de Product.Specs: los métodos retornan copias
+// shallow del struct Product, pero el campo Specs (map[string]any) se
+// COMPARTE por referencia con el catálogo interno. Si un consumidor mutara
+// el map (`p.Specs["x"] = y`), corromperíamos el dataset compartido sin
+// holdear el lock. Hoy ningún caller muta — está documentado como contrato:
+// Specs es read-only para el consumidor. Si en el futuro algún caller necesita
+// mutar, hacer deep-copy explícito en ese punto (no acá: pagar el costo de
+// copia siempre, cuando casi nadie lo necesita, no compensa).
 type JSONRepository struct {
 	mu       sync.RWMutex
 	products []domain.Product

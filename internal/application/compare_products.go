@@ -40,17 +40,27 @@ type CompareProductsResult struct {
 
 // Execute compara los productos solicitados.
 //
-// Validaciones:
-//  1. ids no puede estar vacío → ErrEmptyIDs
-//  2. fields (si se pasan) deben ser todos válidos → ErrInvalidField
-//  3. todos los ids deben existir → *MissingIDsError con detalle
+// Validaciones (en orden, fail-fast):
+//  1. ids no puede estar vacío → ErrEmptyIDs.
+//  2. dedup de ids preservando orden — comparar X con X no aporta y devolver
+//     duplicados confunde al cliente. Movido del handler al use case para que
+//     CUALQUIER adapter (HTTP, gRPC, CLI) reciba la misma semántica.
+//  3. cap de cantidad — defensa anti-DoS y guard de UX (ver MaxCompareIDs).
+//  4. fields (si se pasan) deben ser todos válidos → ErrInvalidField.
+//  5. todos los ids deben existir → *MissingIDsError con detalle.
 //
-// Decisión "todo o nada": si falta UN solo id, devolvemos error. Una
+// Decisión "todo o nada" en (5): si falta UN solo id, devolvemos error. Una
 // comparación parcial es semánticamente inválida — el cliente pidió comparar
 // estos N productos específicos, devolverle N-1 silenciosamente lo engaña.
 func (uc *CompareProductsUseCase) Execute(ids, fields []string) (*CompareProductsResult, error) {
 	if len(ids) == 0 {
 		return nil, domain.ErrEmptyIDs
+	}
+
+	ids = dedupPreservingOrder(ids)
+
+	if len(ids) > domain.MaxCompareIDs {
+		return nil, fmt.Errorf("%w: got %d, max %d", domain.ErrTooManyIDs, len(ids), domain.MaxCompareIDs)
 	}
 
 	// Validamos campos contra la whitelist ANTES de tocar el repo.
@@ -75,4 +85,23 @@ func (uc *CompareProductsUseCase) Execute(ids, fields []string) (*CompareProduct
 		Items:  items,
 		Fields: fields,
 	}, nil
+}
+
+// dedupPreservingOrder elimina duplicados manteniendo el orden de aparición.
+// O(n) con set auxiliar. Preservar orden importa porque el cliente esperaría
+// la comparación rendereada en el orden recibido.
+func dedupPreservingOrder(in []string) []string {
+	if len(in) <= 1 {
+		return in
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
 }

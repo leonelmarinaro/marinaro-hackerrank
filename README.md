@@ -12,6 +12,8 @@ API REST en **Go + Gin** para servir detalles de productos y comparar items con 
 | Framework HTTP | Gin | Routing simple, middleware estándar, performance |
 | Persistencia | JSON file in-memory | Sin drivers, portable, fixtures fáciles |
 | Testing | `testing` stdlib + `httptest` | Sin dependencias de mocking, idiomático Go |
+| Logs | `log/slog` (stdlib) | JSON estructurado con request_id, sin dependencias |
+| Lifecycle | `os/signal` + `http.Server.Shutdown` | Graceful shutdown ante SIGTERM/SIGINT |
 
 ## Arquitectura
 
@@ -95,15 +97,58 @@ Tres capas con la regla de dependencias de Clean Architecture: las capas externa
 
 | Status | Cuándo |
 |---|---|
-| 400 | `ids` ausente, `fields` con valor fuera de la whitelist, `page` o `size` no numéricos / negativos |
+| 400 | `ids` ausente, `fields` fuera de la whitelist, `page`/`size` inválidos, `ids` excede `MaxCompareIDs=50` |
 | 404 | Producto no existe. En `/compare` el body incluye `"missing_ids": [...]` con detalle |
 | 500 | Error interno (genérico — nunca filtra detalles) |
 
+### Schemas de respuesta
+
+**`GET /health`** → `200`
+```json
+{ "status": "ok" }
+```
+
+**`GET /products?page=N&size=M`** → `200`
+```json
+{
+  "items":  [Product, ...],
+  "total":  8,
+  "page":   1,
+  "size":   20
+}
+```
+
+**`GET /products/:id`** → `200`
+```json
+{ "id": "1", "name": "...", "price": 1299.99, "specs": { ... }, ... }
+```
+
+**`GET /products/categories`** → `200`
+```json
+{ "categories": ["appliances", "books", "clothing", "smartphones"] }
+```
+
+**`GET /products/compare?ids=1,2,3&fields=name,price`** → `200`
+```json
+{
+  "items":  [{ "name": "...", "price": 1299.99 }, ...],
+  "fields": ["name", "price"]
+}
+```
+
+**Errores** → `4xx/5xx`
+```json
+{ "error": "...", "missing_ids": ["99"] }
+```
+`missing_ids` solo aparece en 404 de `/compare` con IDs faltantes.
+
 ### Detalles de comportamiento
 
-- **`/compare` deduplica IDs**: `?ids=1,1,2` se procesa como `[1, 2]`. Comparar X con X no aporta información y devolver duplicados confunde al cliente.
+- **`/compare` deduplica IDs en el use case**: `?ids=1,1,2` → `[1, 2]`. Cualquier adapter (HTTP, gRPC, CLI) recibe la misma semántica.
+- **`/compare` cap de cantidad**: máximo `MaxCompareIDs=50` items por request. Defensa contra DoS por amplificación + guard de UX.
 - **`/products?page=999`** (fuera de rango): `200` con `items: []` y `total` real — el cliente sabe que ya iteró.
 - **`/products?page=-1`**: `400` (validación strict). Si NO se pasa el query param, se aplica el default silenciosamente.
+- **`X-Request-Id`**: si viene en el request lo respetamos (correlación cross-service); si no, generamos uno y lo devolvemos en el response header. Va también en cada log JSON.
 
 #### Decisión: 404 parcial vs 200 con missing
 Si pedís `?ids=1,2,99` y `99` no existe, el endpoint **falla con 404** y body:
@@ -146,12 +191,27 @@ go build -o api ./cmd/api
 PORT=3000 PRODUCTS_FILE=/path/to/custom.json ./api
 ```
 
-### Cobertura
+### Comandos via Makefile
+
+```bash
+make run          # corre el server en :8080
+make build        # binario en bin/api
+make test         # corre todos los tests
+make cover        # coverage agregado por paquete
+make cover-html   # genera coverage.html navegable
+make vet          # go vet
+make fmt          # gofmt -w
+make vulncheck    # govulncheck (instala si falta)
+make check        # fmt + vet + test (pre-commit)
+```
+
+### Cobertura manual
 
 ```bash
 go test ./... -cover                                       # totales por paquete
 go test ./... -coverprofile=cover.out                      # detalle por línea
 go tool cover -html=cover.out                              # visualización en browser
+govulncheck ./...                                          # CVEs en deps directas/transitives
 ```
 
 ### Smoke test (con respuestas esperadas)
@@ -195,27 +255,48 @@ HTTP 400
 
 ## Cobertura de tests
 
-**45 tests** en 5 paquetes:
+**47 tests** en 5 paquetes:
 
 ```
 domain          → 6 tests   (entity + errors)
-application     → 14 tests  (use cases con mocks)
+application     → 16 tests  (use cases con mocks, incluye dedup y cap de IDs)
 persistence     → 11 tests  (adapter JSON con archivos de prueba)
-http            → 14 tests  (e2e vía httptest, incluye dedup, paginación strict, page out-of-range)
+http            → 14 tests  (e2e vía httptest, paginación strict, dedup, page out-of-range)
 ```
 
-Cada error path está cubierto: empty IDs, invalid field, missing IDs, not found, paginación inválida, IDs duplicados, page fuera de rango.
+Cada error path está cubierto: empty IDs, invalid field, too many IDs (>50), missing IDs, not found, paginación inválida, IDs duplicados, page fuera de rango.
+
+## Robustez de runtime (incluida)
+
+| Ítem | Implementación |
+|---|---|
+| **Graceful shutdown** | `signal.Notify(SIGINT, SIGTERM)` + `srv.Shutdown(ctx)` con timeout 10s — drena requests en vuelo |
+| **HTTP server timeouts** | `ReadHeaderTimeout=5s`, `ReadTimeout=10s`, `WriteTimeout=15s`, `IdleTimeout=60s` — defensa anti-slowloris |
+| **Logs estructurados** | `log/slog` JSON con `request_id`, `method`, `path`, `status`, `duration`, `client_ip` |
+| **Request correlation** | Middleware `X-Request-Id` (honra entrante, genera si falta, devuelve en response) |
+| **Security headers** | `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` |
+| **Trusted proxies** | `SetTrustedProxies(nil)` — no confía en headers de proxies por default |
+| **Gin release mode** | Default `ReleaseMode` (no debug warnings en stdout); override por `GIN_MODE` env |
+| **Cap anti-DoS** | `MaxCompareIDs=50` en `/compare` |
+| **Validación de path** | `PRODUCTS_FILE` rechaza no-`.json` y segmentos `..` (defense-in-depth) |
+| **Fail-fast** | El binario aborta si no puede cargar el catálogo |
 
 ## Lo que NO está incluido (out of scope intencional)
 
-- Auth / JWT
-- Rate limiting
-- Cache
-- Observabilidad (Prometheus, OpenTelemetry)
-- DB real (PostgreSQL, Redis)
-- CI/CD pipelines
+| Pieza | Por qué afuera | Cómo se agregaría |
+|---|---|---|
+| **Auth / JWT** | El enunciado no lo pide; sin clientes definidos | Middleware Gin antes del router; domain no se entera |
+| **Rate limiting** | Out of scope; mejor en el edge (LB/API Gateway de MELI) | Middleware (golang.org/x/time/rate) o Redis-backed para distribuido |
+| **CORS** | API server-to-server por default; UI no definida | Middleware con whitelist de orígenes — decisión consciente, no olvido |
+| **Cache** | Catálogo chico, latencias triviales | `Cache-Control` en endpoints idempotentes + ETag, o capa Redis |
+| **Métricas Prometheus** | Requiere stack adicional (scraper, dashboards) para evaluar | `gin-prometheus` middleware + `/metrics` |
+| **OpenAPI/Swagger** | Para 5 endpoints, README curado comunica más rápido | `swaggo/swag` con anotaciones; útil cuando >10 endpoints |
+| **Versionado `/v1/...`** | Sin clientes existentes, agregar versión es cargo-cult | Cuando llegue el primer breaking change real |
+| **Tracing distribuido (OTel)** | Servicio único, request_id alcanza | OpenTelemetry SDK + exportador (Jaeger/Tempo) |
+| **DB real** | Enunciado dice explícitamente "no se requiere" | Nuevo adapter `infrastructure/persistence/postgres_repository.go` que implemente el mismo port |
+| **CI/CD pipelines** | Fuera del alcance del challenge | GitHub Actions con `make check` + `govulncheck` |
 
-Estas piezas son críticas en producción pero el challenge no las pide. Agregarlas aquí leería como over-engineering. El diseño las admite sin reescribir nada — son adapters adicionales.
+> **Saber cuándo NO hacer algo es tan senior como saber hacerlo.** El diseño admite cualquiera de estas piezas como adapter adicional sin reescribir el dominio.
 
 ## Cómo extender
 
