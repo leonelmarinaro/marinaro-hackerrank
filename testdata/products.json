@@ -1,0 +1,153 @@
+[
+  {
+    "id": "1",
+    "name": "iPhone 15 Pro",
+    "description": "El iPhone más avanzado con chip A17 Pro y cámara de 48MP",
+    "image_url": "https://example.com/images/iphone-15-pro.jpg",
+    "price": 1299.99,
+    "rating": 4.7,
+    "category": "smartphones",
+    "weight": 0.187,
+    "color": "Titanio Natural",
+    "specs": {
+      "brand": "Apple",
+      "model": "iPhone 15 Pro",
+      "battery": "3274mAh",
+      "ram": "8GB",
+      "storage": "256GB",
+      "camera": "48MP + 12MP + 12MP",
+      "os": "iOS 17",
+      "screen": "6.1 OLED ProMotion"
+    }
+  },
+  {
+    "id": "2",
+    "name": "Samsung Galaxy S24 Ultra",
+    "description": "Smartphone insignia con S Pen integrado y cámara de 200MP",
+    "image_url": "https://example.com/images/galaxy-s24-ultra.jpg",
+    "price": 1399.99,
+    "rating": 4.6,
+    "category": "smartphones",
+    "weight": 0.232,
+    "color": "Titanium Black",
+    "specs": {
+      "brand": "Samsung",
+      "model": "Galaxy S24 Ultra",
+      "battery": "5000mAh",
+      "ram": "12GB",
+      "storage": "512GB",
+      "camera": "200MP + 50MP + 12MP + 10MP",
+      "os": "Android 14",
+      "screen": "6.8 Dynamic AMOLED 2X"
+    }
+  },
+  {
+    "id": "3",
+    "name": "Google Pixel 8 Pro",
+    "description": "Smartphone con IA avanzada y cámara computacional",
+    "image_url": "https://example.com/images/pixel-8-pro.jpg",
+    "price": 999.99,
+    "rating": 4.5,
+    "category": "smartphones",
+    "weight": 0.213,
+    "color": "Obsidian",
+    "specs": {
+      "brand": "Google",
+      "model": "Pixel 8 Pro",
+      "battery": "5050mAh",
+      "ram": "12GB",
+      "storage": "256GB",
+      "camera": "50MP + 48MP + 48MP",
+      "os": "Android 14",
+      "screen": "6.7 LTPO OLED"
+    }
+  },
+  {
+    "id": "4",
+    "name": "Clean Code",
+    "description": "Manual de desarrollo ágil de software por Robert C. Martin",
+    "image_url": "https://example.com/images/clean-code.jpg",
+    "price": 35.50,
+    "rating": 4.8,
+    "category": "books",
+    "weight": 0.45,
+    "specs": {
+      "author": "Robert C. Martin",
+      "publisher": "Prentice Hall",
+      "pages": 464,
+      "language": "Inglés",
+      "isbn": "978-0132350884",
+      "year": 2008
+    }
+  },
+  {
+    "id": "5",
+    "name": "The Pragmatic Programmer",
+    "description": "De aprendiz a maestro — clásico del oficio del software",
+    "image_url": "https://example.com/images/pragmatic-programmer.jpg",
+    "price": 42.00,
+    "rating": 4.9,
+    "category": "books",
+    "weight": 0.5,
+    "specs": {
+      "author": "David Thomas, Andrew Hunt",
+      "publisher": "Addison-Wesley",
+      "pages": 352,
+      "language": "Inglés",
+      "isbn": "978-0135957059",
+      "year": 2019
+    }
+  },
+  {
+    "id": "6",
+    "name": "Remera básica blanca",
+    "description": "Remera 100% algodón cuello redondo",
+    "image_url": "https://example.com/images/remera-blanca.jpg",
+    "price": 19.99,
+    "rating": 4.2,
+    "category": "clothing",
+    "size": "M",
+    "color": "blanco",
+    "weight": 0.18,
+    "specs": {
+      "material": "100% algodón",
+      "care": "Lavado frío",
+      "origin": "Argentina"
+    }
+  },
+  {
+    "id": "7",
+    "name": "Buzo con capucha",
+    "description": "Buzo unisex con frizado interior, ideal para entretiempo",
+    "image_url": "https://example.com/images/buzo-capucha.jpg",
+    "price": 49.99,
+    "rating": 4.4,
+    "category": "clothing",
+    "size": "L",
+    "color": "gris",
+    "weight": 0.6,
+    "specs": {
+      "material": "80% algodón, 20% poliéster",
+      "care": "Lavado a máquina",
+      "origin": "Argentina"
+    }
+  },
+  {
+    "id": "8",
+    "name": "Cafetera espresso automática",
+    "description": "Cafetera con molinillo integrado y vaporizador de leche",
+    "image_url": "https://example.com/images/cafetera-espresso.jpg",
+    "price": 599.00,
+    "rating": 4.3,
+    "category": "appliances",
+    "weight": 9.5,
+    "color": "acero inoxidable",
+    "specs": {
+      "brand": "DeLonghi",
+      "model": "Magnifica S",
+      "power": "1450W",
+      "voltage": "220V",
+      "warranty": "2 años"
+    }
+  }
+]

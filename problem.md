@@ -1,23 +1,33 @@
-Este es un problema de hackerrank para un entrevista tecnica en mercado libre, el problema es el siguiente:
+# Desafío Técnico — Mercado Libre
 
-tengo que construir un backend api that suplpies products details for use in an item compararion feature. ypur implementation should follow established backend best practices, providinde clear and efficient endpoints to retrieve the required data for product comparisions
+> Challenge de HackerRank para entrevista técnica en Mercado Libre.
 
-## Requirements:
-backend api development
-api endpoints
-* build a restful api that returns details for multiples items to be compared
-* the api shoul provide fields such as product name, image url, description, price, rating, and specifications
-* include error handling and inline comments to explain your logic
+## Contexto
 
-## Stack:
-* you can use any backend technology or framweork of your choice
-* simulate data persistence using local json/csv files or an in-memory database (e.g., SQLite, H2 Database) to represent the inventory. A real database is not required
+Hay que construir un **backend API** que provea detalles de productos para una feature de **comparación de items**. La implementación debe seguir buenas prácticas de backend, con endpoints claros y eficientes para recuperar la información necesaria para comparar productos.
 
-## Function requirements:
-the product model should encapsulate essential information, including but not limited to the following attributes: ID, name, description, price,size , weight, and color. Additionally, certain products may requiere specialized information. For example, a smartphone shoul include specefic details such as battery capacity, camera specificacttions, memory, storage capacity, brand, model version, and operating system. A user should be able to query specefic comparisions between items and ignore other fields. This will help them focus on the most relevant details for their analysis
+## Requerimientos
 
-## Non-functional requirements:
-special consideration will be given to goo practices in error handling, documentation, testing, and any other relevant relevant non-functional aspects you choose demonstrate.
+### Desarrollo del API y endpoints
+- Construir un **API RESTful** que retorne detalles de múltiples items para ser comparados.
+- El API debe exponer campos como: nombre del producto, URL de imagen, descripción, precio, rating y especificaciones.
+- Incluir **manejo de errores** y comentarios inline que expliquen la lógica.
 
-## Documentation & strategic overview:
-Please include a bried README or Diagram (optional) that explains your API design, main endpoints, setup instructions, and any key architectural decisions you made during development
+### Stack
+- Se puede usar cualquier tecnología o framework de backend.
+- Simular la persistencia con archivos locales JSON/CSV o una base de datos en memoria (por ejemplo SQLite, H2). **No se requiere una base de datos real.**
+
+### Requerimientos funcionales
+- El **modelo de producto** debe encapsular información esencial, incluyendo (pero no limitado a) los siguientes atributos: `id`, `name`, `description`, `price`, `size`, `weight`, `color`.
+- Algunos productos pueden requerir información especializada. Por ejemplo, un **smartphone** debe incluir detalles específicos como: capacidad de batería, especificaciones de cámara, memoria, capacidad de almacenamiento, marca, versión del modelo y sistema operativo.
+- El usuario debe poder **consultar comparaciones específicas entre items e ignorar otros campos**. Esto le permite enfocarse en los detalles más relevantes para su análisis.
+
+### Requerimientos no funcionales
+Se valorará especialmente: buenas prácticas en manejo de errores, documentación, testing, y cualquier otro aspecto no funcional relevante que decidas demostrar.
+
+### Documentación y visión estratégica
+Incluir un breve **README** o diagrama (opcional) que explique:
+- Diseño del API
+- Endpoints principales
+- Instrucciones de setup
+- Decisiones arquitectónicas clave tomadas durante el desarrollo
