@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+
+set -eu
+
+echo "[pre-commit] gofmt -w ."
+gofmt -w .
+
+echo "[pre-commit] go vet ./..."
+go vet ./...
+
+echo "[pre-commit] go test ./..."
+go test ./...
+
+echo "[pre-commit] OK"

@@ -7,6 +7,35 @@ Pegá el SYSTEM una vez, después los prompts en orden. Tu module path = `MOD` (
 ## SYSTEM (pegar 1 vez)
 
 ```
+
+---
+
+## P14 — 5 extras mínimos (compacto)
+
+```bash
+# Implementar sin sobreingeniería:
+# 1) .github/workflows/ci.yml con gofmt check + go vet ./... + go test ./...
+# 2) .githooks/pre-commit (ejecutable): gofmt -w . ; go vet ./... ; go test ./...
+# 3) OBSERVABILITY.md: logs, request_id, 500 genérico, headers, timeouts, demo checklist
+# 4) PRODUCTION-NEXT-STEPS.md: pasos realistas + por qué (priorizado)
+# 5) Dockerfile multistage simple (sin compose/k8s/deploy automation)
+
+# Restricciones:
+# - no devcontainer
+# - no CI/CD pesado
+# - no Prometheus/Grafana/OTel reales
+# - evitar build salvo estrictamente necesario
+
+# Validar:
+gofmt -l .
+go vet ./...
+go test ./...
+
+# Reportar:
+# - files changed
+# - checks run
+# - riesgos/trade-offs
+```
 Sos un agente que sigue instrucciones al pie. Construimos un backend Go + Gin paso a paso.
 
 REGLAS:
